@@ -1,0 +1,117 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<!-- Everything below is a *virtual* template (never a real, parented
+	     frame). Real instances are created in Lua from PLAYER_LOGIN with
+	     CreateFrame(type, name, ATSWFrame, "TemplateName"), passing the
+	     actual ATSWFrame object as the parent - not its name as a string.
+	     That's deliberate: a "parent=..." attribute here would have to
+	     resolve the name "ATSWFrame" the instant this file is parsed,
+	     which only works if AdvancedTradeSkillWindow's own XML already
+	     ran first. Addon load order between two different addons isn't
+	     guaranteed unless the dependency names line up exactly, so doing
+	     the parenting in Lua after PLAYER_LOGIN (by which point every
+	     addon has finished loading, in any order) is what actually makes
+	     this reliable. -->
+
+	<!-- ============================================================
+	     One profession icon button. Built into the profession bar
+	     dynamically in Lua (one per known profession).
+	     ============================================================ -->
+	<CheckButton name="ATSWQT_ProfButtonTemplate" hidden="true" virtual="true">
+		<Size>
+			<AbsDimension x="30" y="30"/>
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentIcon" setAllPoints="true"/>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnClick>
+				ATSWQT_ProfessionButton_OnClick(this);
+			</OnClick>
+			<OnEnter>
+				ATSWQT_ProfessionButton_OnEnter(this);
+			</OnEnter>
+			<OnLeave>
+				GameTooltip:Hide();
+			</OnLeave>
+		</Scripts>
+		<NormalTexture file="Interface\Buttons\UI-Quickslot2"/>
+		<PushedTexture file="Interface\Buttons\UI-Quickslot-Depress"/>
+		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
+		<!-- No CheckedTexture: the stock CheckButtonHilight art just
+		     renders as a plain little square, so the "this is the
+		     active profession" indicator was removed rather than
+		     shipping something that looks like a rendering glitch. -->
+	</CheckButton>
+
+	<!-- ============================================================
+	     Profession quick-switch bar template. Positioned in Lua
+	     (anchored just above ATSWFrame) right after creation.
+	     ============================================================ -->
+	<Frame name="ATSWQT_ProfessionBarTemplate" hidden="true" virtual="true">
+		<Size>
+			<AbsDimension x="300" y="40"/>
+		</Size>
+		<Backdrop bgFile="Interface\Tooltips\UI-Tooltip-Background" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
+			<EdgeSize>
+				<AbsValue val="12"/>
+			</EdgeSize>
+			<TileSize>
+				<AbsValue val="16"/>
+			</TileSize>
+			<BackgroundInsets>
+				<AbsInset left="3" right="3" top="3" bottom="3"/>
+			</BackgroundInsets>
+			<Color r="0" g="0" b="0" a="0.6"/>
+		</Backdrop>
+	</Frame>
+
+	<!-- ============================================================
+	     Queue ETA bar template. Positioned in Lua (anchored just
+	     below ATSWFrame) right after creation. Fills with the current
+	     craft's cast progress; the label shows how many items are
+	     left and the estimated time to clear the queue.
+	     ============================================================ -->
+	<StatusBar name="ATSWQT_QueueBarTemplate" hidden="true" virtual="true">
+		<Size>
+			<AbsDimension x="400" y="20"/>
+		</Size>
+		<BarColor r="0.15" g="0.65" b="0.15"/>
+		<BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture setAllPoints="true">
+					<Color r="0" g="0" b="0" a="0.5"/>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString name="$parentText" inherits="GameFontHighlightSmall" justifyH="CENTER">
+					<Size>
+						<AbsDimension x="396" y="16"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Backdrop bgFile="" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
+			<EdgeSize>
+				<AbsValue val="10"/>
+			</EdgeSize>
+		</Backdrop>
+		<Scripts>
+			<OnLoad>
+				this:SetMinMaxValues(0, 1);
+				this:SetValue(0);
+			</OnLoad>
+			<OnUpdate>
+				ATSWQT_QueueBar_OnUpdate(arg1);
+			</OnUpdate>
+		</Scripts>
+	</StatusBar>
+
+	<Script file="QuickTools.lua"/>
+</Ui>
