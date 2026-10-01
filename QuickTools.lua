@@ -390,6 +390,16 @@ function ATSWQT_CreateBars()
 		ATSWQT_QueueBarText = getglobal("ATSWQT_QueueBarBarText")
 	end
 
+	if not ATSWQT_SendReagentsButton and type(ATSWQT_SendReagentsToChat) == "function" then
+		ATSWQT_SendReagentsButton = CreateFrame("Button", "ATSWQT_SendReagentsButton", ATSWQT_QueueBarBar, "UIPanelButtonTemplate")
+		ATSWQT_SendReagentsButton:SetWidth(90)
+		ATSWQT_SendReagentsButton:SetHeight(22)
+		ATSWQT_SendReagentsButton:SetPoint("LEFT", ATSWQT_QueueBarBar, "RIGHT", 6, 0)
+		getglobal(ATSWQT_SendReagentsButton:GetName().."Text"):SetText("Send Mats")
+		ATSWQT_SendReagentsButton:SetScript("OnClick", ATSWQT_SendReagentsToChat)
+		ATSWQT_SendReagentsButton:Show()
+	end
+
 	return true
 end
 

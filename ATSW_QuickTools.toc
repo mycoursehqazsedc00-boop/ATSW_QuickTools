@@ -3,9 +3,11 @@
 ## Notes: Queue ETA bar + one-click profession switcher for AdvancedTradeSkillWindow.
 ## Notes: Uses ClassicAPI's GetSpellInfo (cast times) and nampower's GetCastInfo (live cast timer) when present, degrades gracefully without them.
 ## Notes: Also shows per-reagent Aux prices on the selected recipe's reagent icons, if Aux is installed.
-## Version: 1.6
+## Notes: "Send Mats" button posts the whole queue's reagent list, as item links, to your current chat channel.
+## Version: 1.7
 ## OptionalDeps: AdvancedTradeSkillWindow, AdvancedTradeSkillWindow-vanilla, ATSW, ClassicAPI, nampower, SuperWoW, UnitXP_SP3, aux-addon, Aux
 ## SavedVariables: atsw_qt_recipetime, atsw_qt_seenprofessions
 
 QuickTools.xml
 AuxPricing.lua
+SendReagents.lua
