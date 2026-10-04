@@ -29,16 +29,23 @@ Works with zero client mods — it's a plain spellbook scan (`GetSpellTabInfo`/`
 ### Per-reagent Aux prices
 On the reagent icons for whichever recipe is selected, if [Aux](https://github.com/wow-aux/aux-addon) (the AH addon) is installed: each reagent gets a small price underneath it — vendor price if sold with unlimited stock, otherwise Aux's Auction House value estimate. This is the same rule Aux's own "Total Cost" label already uses, so the per-line numbers add up to that total.
 
-This piggybacks on a compatibility line Aux itself already ships (`if ATSWReagentLabel then ... end` in its `core/crafting.lua`), which is how we know ATSW's reagent slots are very likely named `ATSWReagent1`..`ATSWReagent8`, mirroring Blizzard's own `TradeSkillReagent1..8`. Run `/atswqt aux` to check whether Aux was found. If the per-reagent numbers don't show up even though that says "connected," your ATSW build names those slots differently — open an issue/PR with the relevant bit of `atsw.xml`/`atsw.lua` and it can be matched exactly.
+This piggybacks on a compatibility line Aux itself already ships (`if ATSWReagentLabel then ... end` in its `core/crafting.lua`) for the total, and reads the per-slot reagent icons directly — confirmed from `atsw.lua` itself to be `ATSWReagent1`..`ATSWReagent8`, each with `Name`/`Count` children, mirroring Blizzard's own `TradeSkillReagent1..8`. The reagent data itself (name/count/item link) comes straight from `atsw_tradeskilllist[*].reagents[*]` — the same already-resolved table ATSW's own queue/chat features read — rather than any live `GetTradeSkill*`/`GetCraft*` reagent calls of our own, so it's correct regardless of which of those two APIs the selected profession actually uses. Run `/atswqt aux` to check whether Aux was found, and how many prices are cached.
 
-Does nothing if Aux isn't installed.
+**Persistent price cache.** Every price this addon gets from Aux is saved into `atsw_qt_pricecache` (a SavedVariable, keyed by item), which lives under `WTF/Account/.../SavedVariables/` — a different place from the client's `WDB` cache, so it survives a WDB wipe. When Aux doesn't have a live answer (not loaded this session, or no data yet for that item), the last cached price is shown instead, prefixed with `~` to mark it as not current. Item links are parsed with Aux's own code when it's loaded, falling back to a small built-in parser otherwise — so cached prices still display even in a session where Aux itself hasn't loaded.
 
 ### "Send Mats" button
-Next to the queue ETA bar. Posts one chat line per distinct reagent needed to finish the **whole** queue (item link + total count) to whatever chat channel you'd currently land in if you hit Enter and typed — it reuses the chat edit box's own remembered channel (`ChatEdit_ActivateChat`/`ChatEdit_SendText`) rather than guessing a channel number, so it matches Say/a whisper/Guild/a numbered channel/whatever you were last using.
+Next to the queue ETA bar. Posts one chat line per distinct reagent needed to finish the **whole** queue (item link + total count).
+
+The totals are ATSW's own, not re-derived: it rebuilds and reads `atsw_queueditemlist` (the same table `ATSWInv_UpdateQueuedItemList()` builds for ATSW's internal use), pairing each reagent with its item link from `atsw_tradeskilllist`. Because that list only holds the currently-open profession's recipes (ATSW rebuilds it fresh each time you switch profession), this — like ATSW's own reagents-needed window — can only total reagents for queued items belonging to that profession. If your queue spans more than one, switch to each and click "Send Mats" separately.
+
+Where it sends is worked out the same way ATSW's own Shift+Left-Click "send reagents to chat" feature does (`ATSW_AddTradeSkillReagentLinksToChatFrame` in `atsw.lua`): reading `ChatFrameEditBox.chatType` directly (with WIM support), then calling `SendChatMessage` — no `ChatEdit_ActivateChat`/`ChatEdit_SendText`, since not every client exposes those. `/atswqt channel <say|party|raid|guild|officer|yell|#>` (see [Slash commands](#slash-commands)) pins an explicit channel instead, if you ever need to override auto-detection.
 
 Lines are paced one every ~0.3s instead of sent all at once, so a long materials list doesn't trip chat spam throttling.
 
-This is computed independently of ATSW's own reagent window (that code isn't available in this repo — see [Known limitations](#known-limitations)) by re-deriving the same totals from the queue plus the stock trade skill/craft reagent APIs. Because of that it can only resolve a queued recipe's reagents while the profession that recipe belongs to is the one currently open in ATSW — normally a non-issue, but if your queue spans more than one profession, switch to each and click "Send Mats" separately.
+### "Bought" checkbox on the reagents-needed window
+A small checkbox next to each row of ATSW's own "reagents needed for the queue" window (`ATSWReagentFrame`, rows `ATSWRFReagent1`..`ATSWRFReagent20`). Check one off after buying that material and its name dims, so the list reads as "handled" while you work through it.
+
+Marks are kept by reagent name (`atsw_qt_bought`, a SavedVariable) rather than by row number, since rows get reused for whatever's currently short — and they persist across a relog. They're never auto-cleared: once a reagent is fully supplied, ATSW's own filtering removes it from the list (so its checkbox disappears with it), but the mark itself is left in `atsw_qt_bought` rather than pruned, since there's no fully reliable way from here to tell "satisfied" apart from "not needed by whatever profession happens to be open right now."
 
 ## Requirements
 
@@ -60,6 +67,9 @@ Everything degrades gracefully when an optional addon isn't present.
 ## Slash commands
 
 - `/atswqt` — re-runs the profession scan and queue refresh, and prints Aux's connection status.
+- `/atswqt channel` — shows whether "Send Mats" is currently auto-detecting your channel or pinned to one.
+- `/atswqt channel <say|party|raid|guild|officer|yell|#>` — pins "Send Mats" to that channel (a number joins a numbered custom channel).
+- `/atswqt channel auto` — un-pins it, back to auto-detecting.
 
 ## Troubleshooting
 
@@ -78,7 +88,6 @@ Either way, `/atswqt` re-runs the same check on demand.
 
 ## Known limitations
 
-- **No "mark reagent as bought" checkbox yet.** ATSW's own "reagents needed for the whole queue" window (the one with Inv/Bank/Twink/Merchant columns and the existing shift-click-to-search-AH behavior) isn't something this repo has the source for. Adding a checkbox/strikethrough there needs either that file, or just the function that builds/updates that window plus its XML block (search `atsw.lua` around the `ATSW_REAGENTFRAMETITLE` / `ATSW_REAGENTBUTTON` language strings).
 - The ETA is an estimate, not a guarantee — server lag, a full bag forcing a stop, or an interrupt will throw it off; it recalculates continuously so it self-corrects within a second or two.
 - Recipes with no real spellbook entry (rare, some servers have these) fall back to the flat 3-second guess until you've crafted one and it gets measured.
 - Aux price annotations read Aux's own data (vendor scans + AH history) through its module system — they don't scan the AH themselves, so a price only shows once Aux has actually seen that item before.
@@ -93,9 +102,10 @@ ATSW_QuickTools/
 ├── QuickTools.lua        # queue ETA + profession bar logic, hook installation
 ├── AuxPricing.lua        # per-reagent Aux price annotations
 ├── SendReagents.lua      # "Send Mats" chat export
+├── BoughtReagents.lua    # "bought" checkbox on the reagents-needed window
 └── README.md
 ```
 
 ## How it hooks ATSW
 
-No files in `AdvancedTradeSkillWindow` are edited. This addon only hooks functions ATSW already exposes globally: `ATSW_ShowWindow`, `ATSWFrame_UpdateQueue`, `ATSW_ProcessIt`, `ATSW_SpellcastStart`/`Stop`/`Interrupted`, `ATSWFrame_SetSelection`, `ATSW_DeleteQueue`. Hook installation and bar creation are deferred to `PLAYER_LOGIN` rather than done at file-load time, since addon load order between two separate addons isn't otherwise guaranteed.
+No files in `AdvancedTradeSkillWindow` are edited. This addon only hooks functions ATSW already exposes globally: `ATSW_ShowWindow`, `ATSWFrame_UpdateQueue`, `ATSW_ProcessIt`, `ATSW_SpellcastStart`/`Stop`/`Interrupted`, `ATSWFrame_SetSelection`, `ATSW_DeleteQueue`, `ATSW_ShowNecessaryReagents`. Hook installation and bar creation are deferred to `PLAYER_LOGIN` rather than done at file-load time, since addon load order between two separate addons isn't otherwise guaranteed.
