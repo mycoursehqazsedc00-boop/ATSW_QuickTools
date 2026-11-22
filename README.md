@@ -1,6 +1,9 @@
 # ATSW Quick Tools (Patched for WoW 1.12 / Turtle WoW)
 
-> Companion addon for [AdvancedTradeSkillWindow](https://github.com/laytya/AdvancedTradeSkillWindow-vanilla) adding a Queue ETA bar, profession quick-switch bar, Aux reagent pricing & craft profit summary, paced "Send Mats" chat export, and "Bought" checkboxes.
+> Companion addon for [AdvancedTradeSkillWindow](https://github.com/mycoursehqazsedc00-boop/AdvancedTradeSkillWindow) adding a Queue ETA bar, profession quick-switch bar, Aux reagent pricing & craft profit summary, paced "Send Mats" chat export, and "Bought" checkboxes.
+
+Repository: [https://github.com/mycoursehqazsedc00-boop/ATSW_QuickTools](https://github.com/mycoursehqazsedc00-boop/ATSW_QuickTools)
+Required Base Addon: [https://github.com/mycoursehqazsedc00-boop/AdvancedTradeSkillWindow](https://github.com/mycoursehqazsedc00-boop/AdvancedTradeSkillWindow)
 
 ## Client Mods Used
 | Mod | Purpose in this addon | Required? |
@@ -20,6 +23,7 @@
 
 ## What Was Added / Improved
 - **Fixed Vanilla Lua 5.0 compatibility:** Replaced `...` in `ATSWQT_Hook` with `arg`/`unpack(arg)`, replaced `string.match` with `string.find`, and updated `OnUpdate`/`OnClick` handlers in `SendReagents.lua` and `BoughtReagents.lua` to use `this`/`arg1` so the addon runs cleanly without ClassicAPI.
+- **Fixed Vanilla 1.12 item-link fallback & whisper safety:** Updated `ATSWQT_ParseLink` in `AuxPricing.lua` to match Vanilla 1.12's 4-field `item:itemID:enchantID:suffixID:uniqueID` format when Aux is not loaded, and prevented `SendReagents.lua` from whispering a stale `tellTarget` when `ChatFrameEditBox` is closed.
 - **Fixed UI overlaps & highlight:** Moved `ATSWQT_RFBought1..20` checkboxes to the right of the `Missing` column so they no longer overlap `Inventory`, moved reagent prices to `BOTTOMRIGHT` of each slot to avoid overlapping the row below, and added a gold `CheckedTexture` to `ATSWQT_ProfButtonTemplate`.
 - **Improved performance & safety:** Consolidated `GetCastInfo()` into a single call per `0.2s` tick, guarded `ATSW_SpellcastStop` cast-time learning to active ATSW crafts, sorted "Send Mats" output alphabetically, and prevented double-click queue overwrites.
 - **Added:** Craft Cost vs AH Profit summary in `AuxPricing.lua`, Shift-Click "Send Missing Mats" mode, **Clear Bought** button, UnitXP SP3 queue-completion notification (`/atswqt notify`), `/atswqt status`, and `/atswqt trace`.
@@ -32,5 +36,6 @@
 - `/atswqt trace` — Toggle debug trace messages.
 
 ## Credits & License
-- Original addon: `ATSW_QuickTools` / `AdvancedTradeSkillWindow` (`laytya`)
+- Original addon: `ATSW_QuickTools` / [AdvancedTradeSkillWindow](https://github.com/mycoursehqazsedc00-boop/AdvancedTradeSkillWindow) (`laytya`, `Rene Schneider`)
+- Fork / patches: [ATSW_QuickTools](https://github.com/mycoursehqazsedc00-boop/ATSW_QuickTools)
 - License: Same as original addon.
