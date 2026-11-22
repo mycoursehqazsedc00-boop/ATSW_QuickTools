@@ -64,8 +64,10 @@ local function ATSWQT_ParseLink(link)
 		local ok, item_id, suffix_id = pcall(aux_info.parse_link, link)
 		if ok and item_id and item_id > 0 then return item_id, suffix_id end
 	end
-	local _, _, item_id, suffix_id = string.find(link or "", "item:(%d+):%d+:%d+:%d+:%d+:%d+:(%-?%d+)")
-	if item_id then return tonumber(item_id), tonumber(suffix_id) end
+	local _, _, item_id, suffix_id = string.find(link or "", "item:(%d+):%d*:(%-?%d*)")
+	if item_id then return tonumber(item_id), tonumber(suffix_id) or 0 end
+	local _, _, bare_id = string.find(link or "", "item:(%d+)")
+	if bare_id then return tonumber(bare_id), 0 end
 	return nil
 end
 
@@ -128,13 +130,16 @@ function ATSWQT_RefreshReagentPrices(id)
 	local reagents = (entry and entry.reagents) or {}
 	local n = table.getn(reagents)
 
+	local totalCost = 0
+	local costComplete = (n > 0)
+
 	for i = 1, 8 do
 		local slot = getglobal("ATSWReagent"..i)
 		if slot then
 			local priceText = getglobal(slot:GetName().."ATSWQTPrice")
 			if not priceText then
 				priceText = slot:CreateFontString(slot:GetName().."ATSWQTPrice", "OVERLAY", "GameFontNormalSmall")
-				priceText:SetPoint("TOP", slot, "BOTTOM", 0, -2)
+				priceText:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -4, 2)
 			end
 
 			local shown = false
@@ -142,16 +147,58 @@ function ATSWQT_RefreshReagentPrices(id)
 			if i <= n and r and r.link then
 				local price, isLive = ATSWQT_AuxUnitPrice(r.link)
 				if price then
+					totalCost = totalCost + price * (r.count or 1)
 					local text = ATSWQT_FormatPrice(price)
 					if not isLive then text = "~"..text end
 					priceText:SetText(text)
 					priceText:Show()
 					shown = true
+				else
+					costComplete = false
 				end
+			elseif i <= n then
+				costComplete = false
 			end
 			if not shown then
 				priceText:Hide()
 			end
+		end
+	end
+
+	if ATSWReagentLabel then
+		local summary = getglobal("ATSWQT_CraftSummary")
+		if not summary then
+			summary = ATSWFrame:CreateFontString("ATSWQT_CraftSummary", "OVERLAY", "GameFontHighlightSmall")
+			summary:SetPoint("LEFT", ATSWReagentLabel, "RIGHT", 10, 0)
+		end
+
+		if totalCost > 0 then
+			local parts = (costComplete and "Cost: " or "Cost: >")..ATSWQT_FormatPrice(totalCost)
+			local itemLink = type(ATSW_GetTradeSkillItemLink) == "function" and ATSW_GetTradeSkillItemLink(id) or nil
+			if itemLink then
+				local ahPrice, isLive = ATSWQT_AuxUnitPrice(itemLink)
+				if ahPrice and ahPrice > 0 then
+					local minMade = 1
+					if type(ATSW_GetTradeSkillNumMade) == "function" then
+						local m1, m2 = ATSW_GetTradeSkillNumMade(id)
+						if m1 and m1 > 0 then
+							minMade = m2 and ((m1 + m2) / 2) or m1
+						end
+					end
+					local gross = math.floor(ahPrice * minMade)
+					local profit = gross - totalCost
+					local prefix = isLive and "" or "~"
+					if profit >= 0 then
+						parts = parts.."  |cff33ff99(+"..prefix..ATSWQT_FormatPrice(profit)..")|r"
+					else
+						parts = parts.."  |cffff5555(-"..prefix..ATSWQT_FormatPrice(-profit)..")|r"
+					end
+				end
+			end
+			summary:SetText(parts)
+			summary:Show()
+		else
+			summary:Hide()
 		end
 	end
 end

@@ -40,10 +40,9 @@
 		<NormalTexture file="Interface\Buttons\UI-Quickslot2"/>
 		<PushedTexture file="Interface\Buttons\UI-Quickslot-Depress"/>
 		<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
-		<!-- No CheckedTexture: the stock CheckButtonHilight art just
-		     renders as a plain little square, so the "this is the
-		     active profession" indicator was removed rather than
-		     shipping something that looks like a rendering glitch. -->
+		<CheckedTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD">
+			<Color r="1" g="0.82" b="0" a="0.85"/>
+		</CheckedTexture>
 	</CheckButton>
 
 	<!-- ============================================================

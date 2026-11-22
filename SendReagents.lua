@@ -2,88 +2,74 @@
 --
 -- Adds a "Send Mats" button next to the queue ETA bar. Click it and
 -- it posts one chat line per distinct reagent needed to finish the
--- whole queue (item link + total count), to whatever chat channel
--- you'd currently land in if you just hit Enter and typed - it reuses
--- the chat edit box's own remembered channel (ChatEdit_ActivateChat/
--- ChatEdit_SendText) instead of guessing a channel index, so it's
--- always "whatever you were last chatting in": Say, a whisper, Guild,
--- a numbered channel, whatever.
+-- whole queue (item link + total count).
 --
--- This does NOT read ATSW's own "reagents needed" window (that code
--- isn't available to this addon) - it recomputes the same totals
--- itself, straight from atsw_queue plus the stock trade
--- skill/craft reagent APIs, the same way AuxPricing.lua looks up a
--- single recipe's reagents. Because of that, it can only resolve a
--- queued recipe's reagents while the profession that recipe belongs
--- to is the one currently open (GetTradeSkillInfo/GetCraftInfo only
--- expose the currently-loaded list) - in practice that's normally
--- true anyway, since you'd have that window open to look at the queue.
+-- Both the data and the send method are ATSW's own, not reinvented:
+--   - Reagent totals come from atsw_queueditemlist (built by ATSW's
+--     own ATSWInv_UpdateQueuedItemList(), which sums
+--     atsw_tradeskilllist[*].reagents[*].count * atsw_queue[*].count -
+--     the exact same numbers its own reagents-needed window uses),
+--     with item links read from atsw_tradeskilllist[*].reagents[*].
+--   - The channel to send to is worked out the same way ATSW's own
+--     Shift+Left-Click "send reagents to chat" feature
+--     (ATSW_AddTradeSkillReagentLinksToChatFrame in atsw.lua) does:
+--     reading ChatFrameEditBox.chatType directly (plus WIM support),
+--     then calling SendChatMessage - no ChatEdit_ActivateChat/
+--     ChatEdit_SendText involved, since this client doesn't have them.
+--
+-- Because atsw_tradeskilllist only holds the currently-open
+-- profession's recipes (ATSW rebuilds it fresh each time you switch
+-- profession), this - like ATSW's own reagents window - can only
+-- total reagents for queued items belonging to that profession. If
+-- your queue spans more than one, switch to each and click
+-- "Send Mats" separately to get all of them.
 
--- Finds a recipe's index (and whether it's a trade skill or a craft)
--- by name in whichever list is currently loaded.
-local function ATSWQT_FindRecipeId(recipeName)
-	if type(GetNumTradeSkills) == "function" then
-		local ok, n = pcall(GetNumTradeSkills)
-		if ok and n then
-			for i = 1, n do
-				local name, skillType = GetTradeSkillInfo(i)
-				if name == recipeName and skillType ~= "header" then
-					return "tradeskill", i
+-- Rebuilds atsw_queueditemlist (name -> total count needed) and pairs
+-- it with each reagent's item link from atsw_tradeskilllist.
+local function ATSWQT_AggregateQueueReagents(onlyMissing)
+	local items, totals = {}, {}
+
+	if type(ATSWInv_UpdateQueuedItemList) == "function" then
+		pcall(ATSWInv_UpdateQueuedItemList)
+	end
+
+	if type(atsw_queueditemlist) ~= "table" or type(atsw_tradeskilllist) ~= "table" then
+		return items, totals
+	end
+
+	-- reagent name -> item link, from ATSW's own cached recipe data.
+	local linkByName = {}
+	for j = 1, table.getn(atsw_tradeskilllist) do
+		local reagents = atsw_tradeskilllist[j] and atsw_tradeskilllist[j].reagents
+		if reagents then
+			for k = 1, table.getn(reagents) do
+				local r = reagents[k]
+				if r and r.name and r.link and not linkByName[r.name] then
+					linkByName[r.name] = r.link
 				end
 			end
 		end
 	end
-	if type(GetNumCraftSkills) == "function" then
-		local ok, n = pcall(GetNumCraftSkills)
-		if ok and n then
-			for i = 1, n do
-				local name, skillType = GetCraftInfo(i)
-				if name == recipeName and skillType ~= "header" then
-					return "craft", i
-				end
+
+	for name, count in pairs(atsw_queueditemlist) do
+		if type(count) == "number" and count > 0 then
+			local needed = count
+			if onlyMissing and type(ATSWInv_GetItemCount) == "function" then
+				local have = ATSWInv_GetItemCount(name) or 0
+				needed = count - have
+			end
+			local link = linkByName[name]
+			if link and needed > 0 then
+				table.insert(items, { name = name, link = link })
+				totals[link] = needed
 			end
 		end
 	end
-	return nil
-end
 
--- Returns an ordered list of item links plus a link->total-count table,
--- summed across every entry currently in atsw_queue.
-local function ATSWQT_AggregateQueueReagents()
-	local order, totals = {}, {}
-	if not atsw_queue then return order, totals end
-
-	for qi = 1, table.getn(atsw_queue) do
-		local entry = atsw_queue[qi]
-		local needed = entry.count or 1
-		local kind, id = ATSWQT_FindRecipeId(entry.name)
-		if kind then
-			local numReagents
-			if kind == "tradeskill" then
-				numReagents = GetTradeSkillNumReagents(id)
-			else
-				numReagents = GetCraftNumReagents(id)
-			end
-			for r = 1, (numReagents or 0) do
-				local link, reagentCount
-				if kind == "tradeskill" then
-					link = GetTradeSkillReagentItemLink(id, r)
-					local _, _, c = GetTradeSkillReagentInfo(id, r)
-					reagentCount = c
-				else
-					link = GetCraftReagentItemLink(id, r)
-					local _, _, c = GetCraftReagentInfo(id, r)
-					reagentCount = c
-				end
-				if link then
-					if not totals[link] then
-						totals[link] = 0
-						table.insert(order, link)
-					end
-					totals[link] = totals[link] + (reagentCount or 1) * needed
-				end
-			end
-		end
+	table.sort(items, function(a, b) return a.name < b.name end)
+	local order = {}
+	for i = 1, table.getn(items) do
+		order[i] = items[i].link
 	end
 
 	return order, totals
@@ -92,50 +78,90 @@ end
 -- ------------------------------------------------------------------
 -- Paced sender - posts one line at a time on a short timer instead of
 -- all at once in a loop, so a long materials list doesn't trip chat
--- spam throttling (or get a few lines silently dropped by it).
+-- spam throttling.
 -- ------------------------------------------------------------------
 local ATSWQT_chatSendQueue = {}
 local ATSWQT_chatSendTimer = 0
 local ATSWQT_CHAT_SEND_INTERVAL = 0.3
 
+-- Same channel-detection ATSW's own Shift+Left-Click send-to-chat
+-- uses (ATSW_AddTradeSkillReagentLinksToChatFrame in atsw.lua).
+local function ATSWQT_DetermineChatTarget()
+	local channel, chatnumber
+	if WIM_EditBoxInFocus ~= nil then
+		channel = "WHISPER"
+		chatnumber = WIM_EditBoxInFocus:GetParent().theUser
+	elseif ChatFrameEditBox then
+		channel = ChatFrameEditBox.chatType
+		if channel == "WHISPER" then
+			if ChatFrameEditBox:IsVisible() then
+				chatnumber = ChatFrameEditBox.tellTarget
+			else
+				channel = "SAY"
+			end
+		elseif channel == "CHANNEL" then
+			chatnumber = ChatFrameEditBox.channelTarget
+		end
+	end
+	return channel, chatnumber
+end
+
+-- atsw_qt_sendchannel (set via "/atswqt channel <value>") lets you
+-- override the auto-detected channel if you ever need to.
+local function ATSWQT_SendOneLine(msg)
+	if atsw_qt_sendchannel then
+		local ok = pcall(SendChatMessage, msg, atsw_qt_sendchannel.type, nil, atsw_qt_sendchannel.target)
+		if ok then return true end
+	end
+
+	local channel, chatnumber = ATSWQT_DetermineChatTarget()
+	if channel then
+		local ok = pcall(SendChatMessage, msg, channel, nil, chatnumber)
+		if ok then return true end
+	end
+
+	return pcall(SendChatMessage, msg, "SAY")
+end
+
 local ATSWQT_ChatSendFrame = CreateFrame("Frame")
 ATSWQT_ChatSendFrame:Hide()
-ATSWQT_ChatSendFrame:SetScript("OnUpdate", function(self, elapsed)
-	ATSWQT_chatSendTimer = ATSWQT_chatSendTimer + (elapsed or 0)
+ATSWQT_ChatSendFrame:SetScript("OnUpdate", function()
+	ATSWQT_chatSendTimer = ATSWQT_chatSendTimer + (arg1 or 0)
 	if ATSWQT_chatSendTimer < ATSWQT_CHAT_SEND_INTERVAL then return end
 	ATSWQT_chatSendTimer = 0
 
 	local msg = table.remove(ATSWQT_chatSendQueue, 1)
-	if msg and DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox then
-		local editBox = DEFAULT_CHAT_FRAME.editBox
-		ChatEdit_ActivateChat(editBox)
-		editBox:SetText(msg)
-		ChatEdit_SendText(editBox, 0)
+	if msg then
+		ATSWQT_SendOneLine(msg)
 	end
 
 	if table.getn(ATSWQT_chatSendQueue) == 0 then
-		self:Hide()
-		if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox and DEFAULT_CHAT_FRAME.editBox:IsShown() then
-			ChatEdit_DeactivateChat(DEFAULT_CHAT_FRAME.editBox)
-		end
+		this:Hide()
 	end
 end)
 
-function ATSWQT_SendReagentsToChat()
-	local order, totals = ATSWQT_AggregateQueueReagents()
+function ATSWQT_SendReagentsToChat(onlyMissing)
+	if ATSWQT_ChatSendFrame:IsShown() and table.getn(ATSWQT_chatSendQueue) > 0 then
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: already sending reagent list, please wait...")
+		return
+	end
+
+	local order, totals = ATSWQT_AggregateQueueReagents(onlyMissing)
 	local count = table.getn(order)
 
 	if count == 0 then
 		DEFAULT_CHAT_FRAME:AddMessage(
-			"ATSW Quick Tools: nothing to send (queue is empty, or its recipes aren't in the "..
-			"currently open profession window).")
+			"ATSW Quick Tools: nothing to send ("..(onlyMissing and "no missing reagents" or "queue is empty")..", or its recipes aren't in the currently open profession window).")
 		return
 	end
 
-	ATSWQT_chatSendQueue = {}
+	local header = onlyMissing
+		and ("Missing materials for the queue ("..count.." item(s)):")
+		or ("Materials needed for the queue ("..count.." item(s)):")
+	ATSWQT_chatSendQueue = { header }
 	for i = 1, count do
 		local link = order[i]
-		table.insert(ATSWQT_chatSendQueue, link.."  x"..totals[link])
+		table.insert(ATSWQT_chatSendQueue, totals[link].."x "..link)
 	end
 	ATSWQT_chatSendTimer = 0
 	ATSWQT_ChatSendFrame:Show()

@@ -25,10 +25,34 @@ function ATSWQT_Hook(funcName, after)
 		hooksecurefunc(funcName, after)
 	else
 		setglobal(funcName, function(...)
-			original(...)
-			after(...)
+			local args = arg
+			original(unpack(args))
+			after(unpack(args))
 		end)
 	end
+end
+
+-- ------------------------------------------------------------------
+-- Client mod feature detection (populated at PLAYER_LOGIN)
+-- ------------------------------------------------------------------
+ATSWQT_Mods = {
+	capi = false,
+	np = false,
+	xp3 = false,
+}
+
+ATSWQT_traceEnabled = false
+
+function ATSWQT_Trace(msg)
+	if ATSWQT_traceEnabled then
+		DEFAULT_CHAT_FRAME:AddMessage("|cff99ccff[ATSWQT]|r "..tostring(msg))
+	end
+end
+
+local function ATSWQT_DetectMods()
+	ATSWQT_Mods.capi = (CLASSIC_API_VERSION ~= nil)
+	ATSWQT_Mods.np = (type(GetNampowerVersion) == "function")
+	ATSWQT_Mods.xp3 = pcall(UnitXP, "nop", "nop") and true or false
 end
 
 -- ------------------------------------------------------------------
@@ -223,13 +247,24 @@ local function ATSWQT_GetCastSeconds(recipeName)
 	return ATSWQT_DEFAULT_CAST
 end
 
-local function ATSWQT_RemainingOnCurrentCast(perItemSeconds)
-	-- Prefer nampower's live, exact timer if it's loaded.
-	if type(GetCastInfo) == "function" then
-		local ok, info = pcall(GetCastInfo)
-		if ok and type(info) == "table" and info.castRemainingMs and info.castRemainingMs > 0 then
-			return info.castRemainingMs / 1000
-		end
+local function ATSWQT_GetNampowerCastProgress()
+	if not (ATSWQT_Mods.np and type(GetCastInfo) == "function") then
+		return nil, nil
+	end
+	local ok, info = pcall(GetCastInfo)
+	if ok and type(info) == "table" then
+		local rem = info.castRemainingMs
+		local dur = info.castDurationMs
+		local remSec = (rem and rem > 0) and (rem / 1000) or nil
+		local frac = (dur and dur > 0 and rem) and (1 - (rem / dur)) or nil
+		return remSec, frac
+	end
+	return nil, nil
+end
+
+local function ATSWQT_RemainingOnCurrentCast(perItemSeconds, npRemaining)
+	if npRemaining then
+		return npRemaining
 	end
 	-- Fall back to timing it ourselves from SPELLCAST_START.
 	if ATSWQT_castStartTime then
@@ -238,12 +273,9 @@ local function ATSWQT_RemainingOnCurrentCast(perItemSeconds)
 	return perItemSeconds
 end
 
-local function ATSWQT_CurrentCastFraction(perItemSeconds)
-	if type(GetCastInfo) == "function" then
-		local ok, info = pcall(GetCastInfo)
-		if ok and type(info) == "table" and info.castDurationMs and info.castDurationMs > 0 and info.castRemainingMs then
-			return 1 - (info.castRemainingMs / info.castDurationMs)
-		end
+local function ATSWQT_CurrentCastFraction(perItemSeconds, npFraction)
+	if npFraction then
+		return npFraction
 	end
 	if ATSWQT_castStartTime and perItemSeconds > 0 then
 		return math.min((GetTime() - ATSWQT_castStartTime) / perItemSeconds, 1)
@@ -252,7 +284,7 @@ local function ATSWQT_CurrentCastFraction(perItemSeconds)
 end
 
 -- Seconds left to clear the whole queue.
-local function ATSWQT_EstimateQueueSeconds()
+local function ATSWQT_EstimateQueueSeconds(npRemaining)
 	if not atsw_queue then return 0 end
 	local total = 0
 	local n = table.getn(atsw_queue)
@@ -266,7 +298,7 @@ local function ATSWQT_EstimateQueueSeconds()
 				local ok, r = pcall(GetTradeskillRepeatCount)
 				if ok and r and r > 0 then repeats = r end
 			end
-			total = total + ATSWQT_RemainingOnCurrentCast(per) + per * math.max(repeats - 1, 0)
+			total = total + ATSWQT_RemainingOnCurrentCast(per, npRemaining) + per * math.max(repeats - 1, 0)
 		else
 			total = total + per * count
 		end
@@ -291,10 +323,11 @@ function ATSWQT_RefreshQueueBar()
 		return
 	end
 
-	local totalSeconds = ATSWQT_EstimateQueueSeconds()
+	local npRemaining, npFraction = ATSWQT_GetNampowerCastProgress()
+	local totalSeconds = ATSWQT_EstimateQueueSeconds(npRemaining)
 	if atsw_processing then
 		local per = ATSWQT_GetCastSeconds(atsw_queue[1].name)
-		ATSWQT_QueueBarBar:SetValue(ATSWQT_CurrentCastFraction(per))
+		ATSWQT_QueueBarBar:SetValue(ATSWQT_CurrentCastFraction(per, npFraction))
 		ATSWQT_QueueBarText:SetText(
 			"Crafting "..atsw_queue[1].name.."  |  Queue ETA: "..ATSWQT_FormatTime(totalSeconds))
 	else
@@ -330,15 +363,27 @@ function ATSWQT_InstallHooks()
 		ATSWQT_RefreshQueueBar()
 	end)
 
-	ATSWQT_Hook("ATSWFrame_SetSelection", function()
+	ATSWQT_Hook("ATSWFrame_SetSelection", function(id, wasClicked)
 		ATSWQT_UpdateProfessionHighlight()
 		if type(ATSWQT_RefreshReagentPrices) == "function" then
-			ATSWQT_RefreshReagentPrices()
+			ATSWQT_RefreshReagentPrices(id)
 		end
 	end)
 
+local ATSWQT_wasProcessing = false
+
+local function ATSWQT_NotifyQueueFinished()
+	if atsw_qt_notify == false then return end
+	if ATSWQT_Mods.xp3 then
+		pcall(UnitXP, "notify", "taskbarIcon")
+	end
+	PlaySound("ReadyCheck")
+	ATSWQT_Trace("Queue finished notification sent.")
+end
+
 	ATSWQT_Hook("ATSW_ProcessIt", function()
 		ATSWQT_castStartTime = GetTime()
+		ATSWQT_wasProcessing = true
 	end)
 
 	ATSWQT_Hook("ATSW_SpellcastStart", function()
@@ -347,24 +392,36 @@ function ATSWQT_InstallHooks()
 
 	ATSWQT_Hook("ATSW_SpellcastStop", function()
 		-- Learn/refine this recipe's real cast time from what we just measured,
-		-- so future ETA estimates for it get more accurate over time.
-		if ATSWQT_castStartTime and atsw_processingname and atsw_processingname ~= "" then
+		-- only when ATSW was actually crafting so unrelated casts don't pollute it.
+		if (atsw_processing or ATSWQT_wasProcessing) and ATSWQT_castStartTime and atsw_processingname and atsw_processingname ~= "" then
 			local measured = GetTime() - ATSWQT_castStartTime
 			if measured > 0.3 and measured < 30 then
 				atsw_qt_recipetime[atsw_processingname] = measured
+				ATSWQT_Trace("Learned cast time for "..atsw_processingname..": "..string.format("%.2fs", measured))
 			end
 		end
 		ATSWQT_castStartTime = nil
+		if ATSWQT_wasProcessing and (not atsw_processing) and (not atsw_queue or table.getn(atsw_queue) == 0) then
+			ATSWQT_wasProcessing = false
+			ATSWQT_NotifyQueueFinished()
+		end
 		ATSWQT_RefreshQueueBar()
 	end)
 
 	ATSWQT_Hook("ATSW_SpellcastInterrupted", function()
 		ATSWQT_castStartTime = nil
+		ATSWQT_wasProcessing = false
 		ATSWQT_RefreshQueueBar()
 	end)
 
 	ATSWQT_Hook("ATSW_DeleteQueue", function()
 		ATSWQT_RefreshQueueBar()
+	end)
+
+	ATSWQT_Hook("ATSW_ShowNecessaryReagents", function()
+		if type(ATSWQT_RefreshReagentWindow) == "function" then
+			ATSWQT_RefreshReagentWindow()
+		end
 	end)
 end
 
@@ -396,7 +453,19 @@ function ATSWQT_CreateBars()
 		ATSWQT_SendReagentsButton:SetHeight(22)
 		ATSWQT_SendReagentsButton:SetPoint("LEFT", ATSWQT_QueueBarBar, "RIGHT", 6, 0)
 		getglobal(ATSWQT_SendReagentsButton:GetName().."Text"):SetText("Send Mats")
-		ATSWQT_SendReagentsButton:SetScript("OnClick", ATSWQT_SendReagentsToChat)
+		ATSWQT_SendReagentsButton:SetScript("OnClick", function()
+			ATSWQT_SendReagentsToChat(IsShiftKeyDown())
+		end)
+		ATSWQT_SendReagentsButton:SetScript("OnEnter", function()
+			GameTooltip:SetOwner(this, "ANCHOR_TOP")
+			GameTooltip:SetText("Send Queue Reagents")
+			GameTooltip:AddLine("Click: send all reagents in queue", 1, 1, 1)
+			GameTooltip:AddLine("Shift-Click: send only missing reagents", 0.8, 0.9, 1)
+			GameTooltip:Show()
+		end)
+		ATSWQT_SendReagentsButton:SetScript("OnLeave", function()
+			GameTooltip:Hide()
+		end)
 		ATSWQT_SendReagentsButton:Show()
 	end
 
@@ -404,22 +473,111 @@ function ATSWQT_CreateBars()
 end
 
 -- ------------------------------------------------------------------
+-- /atswqt channel <...> - pins (or clears) which channel "Send Mats"
+-- uses, for clients where auto-detecting the chat box's current
+-- channel isn't reliable. See SendReagents.lua for how this is read.
+-- ------------------------------------------------------------------
+function ATSWQT_SetSendChannel(input)
+	input = (input and string.lower(input)) or ""
+
+	if input == "" then
+		if atsw_qt_sendchannel then
+			local label = atsw_qt_sendchannel.type..(atsw_qt_sendchannel.target and (" "..atsw_qt_sendchannel.target) or "")
+			DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: Send Mats channel is pinned to "..label..
+				". Use /atswqt channel <say|party|raid|guild|officer|yell|#> to change it, or /atswqt channel auto to un-pin.")
+		else
+			DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: Send Mats is auto-detecting your current channel. "..
+				"Use /atswqt channel <say|party|raid|guild|officer|yell|#> to pin one instead.")
+		end
+		return
+	end
+
+	if input == "auto" then
+		atsw_qt_sendchannel = nil
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: Send Mats will auto-detect your current channel again.")
+		return
+	end
+
+	local named = { say = "SAY", party = "PARTY", raid = "RAID", guild = "GUILD", officer = "OFFICER", yell = "YELL" }
+	if named[input] then
+		atsw_qt_sendchannel = { type = named[input] }
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: Send Mats pinned to "..named[input]..".")
+		return
+	end
+
+	local num = tonumber(input)
+	if num then
+		atsw_qt_sendchannel = { type = "CHANNEL", target = num }
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: Send Mats pinned to channel #"..num..".")
+		return
+	end
+
+	DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: didn't understand \""..input..
+		"\" - try say, party, raid, guild, officer, yell, or a channel number.")
+end
+
+-- ------------------------------------------------------------------
 -- Slash command: manual refresh, in case a profession is learned
 -- mid-session and the auto-refresh on window-open hasn't run yet.
+-- Also handles "/atswqt channel ..." (see above).
 -- ------------------------------------------------------------------
 SLASH_ATSWQT1 = "/atswqt"
-SlashCmdList["ATSWQT"] = function()
+SlashCmdList["ATSWQT"] = function(msg)
+	local _, _, cmd, rest = string.find(msg or "", "^%s*(%S*)%s*(.-)%s*$")
+	cmd = string.lower(cmd or "")
+	if cmd == "channel" then
+		ATSWQT_SetSendChannel(rest)
+		return
+	elseif cmd == "trace" then
+		ATSWQT_traceEnabled = not ATSWQT_traceEnabled
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: trace "..(ATSWQT_traceEnabled and "|cff33ff99ON|r" or "|cffff6666OFF|r"))
+		return
+	elseif cmd == "notify" then
+		local arg = string.lower(rest or "")
+		if arg == "on" then
+			atsw_qt_notify = true
+		elseif arg == "off" then
+			atsw_qt_notify = false
+		else
+			atsw_qt_notify = (atsw_qt_notify == false) and true or false
+		end
+		DEFAULT_CHAT_FRAME:AddMessage("ATSW Quick Tools: queue-finish notify "..(atsw_qt_notify ~= false and "|cff33ff99ON|r" or "|cffff6666OFF|r"))
+		return
+	elseif cmd == "status" then
+		local learned = 0
+		for _ in pairs(atsw_qt_recipetime) do learned = learned + 1 end
+		DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99ATSW Quick Tools v"..ATSWQT_GetVersion().."|r")
+		DEFAULT_CHAT_FRAME:AddMessage("  Mods: ClassicAPI="..tostring(ATSWQT_Mods.capi)..", Nampower="..tostring(ATSWQT_Mods.np)..", UnitXP="..tostring(ATSWQT_Mods.xp3))
+		DEFAULT_CHAT_FRAME:AddMessage("  Professions="..table.getn(ATSWQT_known)..", LearnedRecipes="..learned..", Notify="..tostring(atsw_qt_notify ~= false))
+		if type(ATSWQT_AuxStatus) == "function" then
+			DEFAULT_CHAT_FRAME:AddMessage("  "..ATSWQT_AuxStatus())
+		end
+		return
+	end
+
 	local created = ATSWQT_CreateBars()
 	ATSWQT_RefreshProfessionBar()
 	ATSWQT_RefreshQueueBar()
-	local msg = "ATSW Quick Tools: refreshed ("..table.getn(ATSWQT_known).." known profession(s))."
+	local chatmsg = "ATSW Quick Tools: refreshed ("..table.getn(ATSWQT_known).." known profession(s))."
 	if not created then
-		msg = msg.."  |cffff3333ATSWFrame not found.|r"
+		chatmsg = chatmsg.."  |cffff3333ATSWFrame not found.|r"
 	end
 	if type(ATSWQT_AuxStatus) == "function" then
-		msg = msg.."  "..ATSWQT_AuxStatus()
+		chatmsg = chatmsg.."  "..ATSWQT_AuxStatus()
 	end
-	DEFAULT_CHAT_FRAME:AddMessage(msg)
+	DEFAULT_CHAT_FRAME:AddMessage(chatmsg)
+end
+
+-- ------------------------------------------------------------------
+-- Version, read from the .toc so the login message always shows which
+-- copy is actually loaded (handy for spotting a stale install).
+-- ------------------------------------------------------------------
+function ATSWQT_GetVersion()
+	if type(GetAddOnMetadata) == "function" then
+		local ok, v = pcall(GetAddOnMetadata, "ATSW_QuickTools", "Version")
+		if ok and v and v ~= "" then return v end
+	end
+	return "?"
 end
 
 -- ------------------------------------------------------------------
@@ -430,6 +588,10 @@ end
 local ATSWQT_InitFrame = CreateFrame("Frame")
 ATSWQT_InitFrame:RegisterEvent("PLAYER_LOGIN")
 ATSWQT_InitFrame:SetScript("OnEvent", function()
+	ATSWQT_DetectMods()
+	if atsw_qt_notify == nil then
+		atsw_qt_notify = true
+	end
 	local found = ATSWQT_CreateBars()
 	ATSWQT_InstallHooks()
 	ATSWQT_RefreshProfessionBar()
@@ -441,8 +603,8 @@ ATSWQT_InitFrame:SetScript("OnEvent", function()
 	-- just "the bars don't show up": if ATSW itself wasn't found,
 	-- everything else in this addon is a no-op by design.
 	if found then
-		DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99ATSW Quick Tools|r loaded, AdvancedTradeSkillWindow found.")
+		DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99ATSW Quick Tools|r v"..ATSWQT_GetVersion().." loaded, AdvancedTradeSkillWindow found.")
 	else
-		DEFAULT_CHAT_FRAME:AddMessage("|cffff3333ATSW Quick Tools|r loaded, but AdvancedTradeSkillWindow (ATSWFrame) was NOT found - check that addon is enabled and its folder loaded without errors.")
+		DEFAULT_CHAT_FRAME:AddMessage("|cffff3333ATSW Quick Tools|r v"..ATSWQT_GetVersion().." loaded, but AdvancedTradeSkillWindow (ATSWFrame) was NOT found - check that addon is enabled and its folder loaded without errors.")
 	end
 end)
