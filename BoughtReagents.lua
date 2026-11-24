@@ -22,24 +22,25 @@
 atsw_qt_bought = atsw_qt_bought or {}
 
 local ATSWQT_MAX_REAGENT_ROWS = 20
+local ATSWQT_MAX_SHOPPING_ROWS = 5
 
-local function ATSWQT_UpdateReagentRow(i)
-	local entry = atsw_necessaryitems and atsw_necessaryitems[i]
-	local check = getglobal("ATSWQT_RFBought"..i)
+local function ATSWQT_UpdateRowCheck(checkName, rowPrefix, rowIndex, dataIndex, anchorLeftOfCount)
+	local entry = atsw_necessaryitems and atsw_necessaryitems[dataIndex]
+	local check = getglobal(checkName)
 
 	if not entry then
 		if check then check:Hide() end
 		return
 	end
 
-	local itemFS = getglobal("ATSWRFReagent"..i.."Item")
+	local itemFS = getglobal(rowPrefix..rowIndex.."Item")
 
 	if not check then
-		local row = getglobal("ATSWRFReagent"..i)
+		local row = getglobal(rowPrefix..rowIndex)
 		if not row then return end
-		check = CreateFrame("CheckButton", "ATSWQT_RFBought"..i, row, "UICheckButtonTemplate")
-		check:SetWidth(20)
-		check:SetHeight(20)
+		check = CreateFrame("CheckButton", checkName, row, "UICheckButtonTemplate")
+		check:SetWidth(anchorLeftOfCount and 18 or 20)
+		check:SetHeight(anchorLeftOfCount and 18 or 20)
 		check:SetScript("OnClick", function()
 			local nm = this.itemname
 			if nm then
@@ -56,14 +57,26 @@ local function ATSWQT_UpdateReagentRow(i)
 	end
 
 	check.itemname = entry.name
-	local missingFS = getglobal("ATSWRFReagent"..i.."Missing")
 	check:ClearAllPoints()
-	if missingFS then
-		check:SetPoint("LEFT", missingFS, "RIGHT", 8, 0)
+	if anchorLeftOfCount then
+		local countFS = getglobal(rowPrefix..rowIndex.."Count")
+		if countFS then
+			check:SetPoint("RIGHT", countFS, "LEFT", -2, 0)
+		else
+			local row = getglobal(rowPrefix..rowIndex)
+			if row then
+				check:SetPoint("LEFT", row, "LEFT", -18, 0)
+			end
+		end
 	else
-		local row = getglobal("ATSWRFReagent"..i)
-		if row then
-			check:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+		local missingFS = getglobal(rowPrefix..rowIndex.."Missing")
+		if missingFS then
+			check:SetPoint("LEFT", missingFS, "RIGHT", 8, 0)
+		else
+			local row = getglobal(rowPrefix..rowIndex)
+			if row then
+				check:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+			end
 		end
 	end
 	check:SetChecked(atsw_qt_bought[entry.name] and true or false)
@@ -99,6 +112,12 @@ end
 function ATSWQT_RefreshReagentWindow()
 	ATSWQT_EnsureClearBoughtButton()
 	for i = 1, ATSWQT_MAX_REAGENT_ROWS do
-		ATSWQT_UpdateReagentRow(i)
+		ATSWQT_UpdateRowCheck("ATSWQT_RFBought"..i, "ATSWRFReagent", i, i, false)
+	end
+	if ATSWShoppingListFrame and ATSWSLScrollFrame then
+		local offset = FauxScrollFrame_GetOffset(ATSWSLScrollFrame) or 0
+		for i = 1, ATSWQT_MAX_SHOPPING_ROWS do
+			ATSWQT_UpdateRowCheck("ATSWQT_SLFBought"..i, "ATSWSLFReagent", i, offset + i, true)
+		end
 	end
 end

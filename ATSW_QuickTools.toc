@@ -7,7 +7,7 @@
 ## Notes: Checkbox on ATSW's reagents-needed window to mark a material as bought.
 ## Version: 2.3
 ## OptionalDeps: AdvancedTradeSkillWindow, AdvancedTradeSkillWindow-vanilla, ATSW, ClassicAPI, nampower, SuperWoW, UnitXP_SP3, aux-addon, Aux
-## SavedVariables: atsw_qt_recipetime, atsw_qt_seenprofessions, atsw_qt_sendchannel, atsw_qt_bought, atsw_qt_pricecache, atsw_qt_notify
+## SavedVariables: atsw_qt_recipetime, atsw_qt_seenprofessions, atsw_qt_sendchannel, atsw_qt_bought, atsw_qt_pricecache, atsw_qt_notify, atsw_qt_ahcut
 
 QuickTools.xml
 AuxPricing.lua

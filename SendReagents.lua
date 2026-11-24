@@ -53,15 +53,17 @@ local function ATSWQT_AggregateQueueReagents(onlyMissing)
 
 	for name, count in pairs(atsw_queueditemlist) do
 		if type(count) == "number" and count > 0 then
-			local needed = count
-			if onlyMissing and type(ATSWInv_GetItemCount) == "function" then
-				local have = ATSWInv_GetItemCount(name) or 0
-				needed = count - have
-			end
-			local link = linkByName[name]
-			if link and needed > 0 then
-				table.insert(items, { name = name, link = link })
-				totals[link] = needed
+			local skip = onlyMissing and type(atsw_qt_bought) == "table" and atsw_qt_bought[name]
+			if not skip then
+				local needed = count
+				if onlyMissing and type(ATSWInv_GetItemCount) == "function" then
+					local have = ATSWInv_GetItemCount(name) or 0
+					needed = count - have
+				end
+				if needed > 0 then
+					local display = linkByName[name] or ("["..name.."]")
+					table.insert(items, { name = name, text = display, needed = needed })
+				end
 			end
 		end
 	end
@@ -69,7 +71,8 @@ local function ATSWQT_AggregateQueueReagents(onlyMissing)
 	table.sort(items, function(a, b) return a.name < b.name end)
 	local order = {}
 	for i = 1, table.getn(items) do
-		order[i] = items[i].link
+		order[i] = items[i].text
+		totals[items[i].text] = items[i].needed
 	end
 
 	return order, totals

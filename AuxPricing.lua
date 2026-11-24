@@ -94,17 +94,21 @@ end
 -- Same "vendor price if unlimited, else Aux AH value" rule Aux's own
 -- crafting-cost feature uses, so a live number here still adds up to
 -- what ATSWReagentLabel/TradeSkillReagentLabel shows as the total.
+-- When ignoreVendor is true (used for the crafted output's AH sell value),
+-- skips vendor buy price and uses Aux's AH market value only.
 -- Returns price, isLive (isLive is false for a cached fallback price).
-local function ATSWQT_AuxUnitPrice(link)
+local function ATSWQT_AuxUnitPrice(link, ignoreVendor)
 	local item_id, suffix_id = ATSWQT_ParseLink(link)
 	if not item_id or item_id == 0 then return nil end
 	local key = item_id..":"..(suffix_id or 0)
 
 	if aux_info and aux_history then
-		local ok, _, vendorPrice, limited = pcall(aux_info.merchant_info, item_id)
-		if ok and vendorPrice and not limited then
-			atsw_qt_pricecache[key] = { price = vendorPrice, time = time() }
-			return vendorPrice, true
+		if not ignoreVendor then
+			local ok, _, vendorPrice, limited = pcall(aux_info.merchant_info, item_id)
+			if ok and vendorPrice and not limited then
+				atsw_qt_pricecache[key] = { price = vendorPrice, time = time() }
+				return vendorPrice, true
+			end
 		end
 		local ok2, value = pcall(aux_history.value, key)
 		if ok2 and value and value > 0 then
@@ -174,24 +178,29 @@ function ATSWQT_RefreshReagentPrices(id)
 
 		if totalCost > 0 then
 			local parts = (costComplete and "Cost: " or "Cost: >")..ATSWQT_FormatPrice(totalCost)
-			local itemLink = type(ATSW_GetTradeSkillItemLink) == "function" and ATSW_GetTradeSkillItemLink(id) or nil
-			if itemLink then
-				local ahPrice, isLive = ATSWQT_AuxUnitPrice(itemLink)
-				if ahPrice and ahPrice > 0 then
-					local minMade = 1
-					if type(ATSW_GetTradeSkillNumMade) == "function" then
-						local m1, m2 = ATSW_GetTradeSkillNumMade(id)
-						if m1 and m1 > 0 then
-							minMade = m2 and ((m1 + m2) / 2) or m1
+			if costComplete then
+				local itemLink = type(ATSW_GetTradeSkillItemLink) == "function" and ATSW_GetTradeSkillItemLink(id) or nil
+				if itemLink then
+					local ahPrice, isLive = ATSWQT_AuxUnitPrice(itemLink, true)
+					if ahPrice and ahPrice > 0 then
+						local minMade = 1
+						if type(ATSW_GetTradeSkillNumMade) == "function" then
+							local m1, m2 = ATSW_GetTradeSkillNumMade(id)
+							if m1 and m1 > 0 then
+								minMade = m2 and ((m1 + m2) / 2) or m1
+							end
 						end
-					end
-					local gross = math.floor(ahPrice * minMade)
-					local profit = gross - totalCost
-					local prefix = isLive and "" or "~"
-					if profit >= 0 then
-						parts = parts.."  |cff33ff99(+"..prefix..ATSWQT_FormatPrice(profit)..")|r"
-					else
-						parts = parts.."  |cffff5555(-"..prefix..ATSWQT_FormatPrice(-profit)..")|r"
+						local gross = math.floor(ahPrice * minMade)
+						if atsw_qt_ahcut == true then
+							gross = math.floor(gross * 0.95)
+						end
+						local profit = gross - totalCost
+						local prefix = isLive and "" or "~"
+						if profit >= 0 then
+							parts = parts.."  |cff33ff99(+"..prefix..ATSWQT_FormatPrice(profit)..")|r"
+						else
+							parts = parts.."  |cffff5555(-"..prefix..ATSWQT_FormatPrice(-profit)..")|r"
+						end
 					end
 				end
 			end
@@ -201,4 +210,61 @@ function ATSWQT_RefreshReagentPrices(id)
 			summary:Hide()
 		end
 	end
+end
+
+-- Computes total reagent cost and estimated AH gross/profit across the
+-- currently queued recipes belonging to the open profession.
+function ATSWQT_GetQueueFinancials()
+	if not (atsw_queue and atsw_tradeskilllist and type(ATSW_GetTradeSkillListPosByName) == "function") then
+		return nil
+	end
+	local qn = table.getn(atsw_queue)
+	if qn == 0 then return nil end
+
+	local totalCost, totalGross = 0, 0
+	local costComplete, grossComplete = true, true
+	local matchedRecipes = 0
+
+	for i = 1, qn do
+		local job = atsw_queue[i]
+		local pos = job and job.name and ATSW_GetTradeSkillListPosByName(job.name) or -1
+		local entry = (pos and pos > 0) and atsw_tradeskilllist[pos]
+		if entry then
+			matchedRecipes = matchedRecipes + 1
+			local qty = job.count or 1
+			local reagents = entry.reagents or {}
+			for j = 1, table.getn(reagents) do
+				local r = reagents[j]
+				local price = r and r.link and ATSWQT_AuxUnitPrice(r.link)
+				if price then
+					totalCost = totalCost + price * (r.count or 1) * qty
+				else
+					costComplete = false
+				end
+			end
+
+			local ahPrice = entry.link and ATSWQT_AuxUnitPrice(entry.link, true)
+			if ahPrice and ahPrice > 0 then
+				local made = (entry.num and entry.num > 0) and entry.num or 1
+				local gross = math.floor(ahPrice * made * qty)
+				if atsw_qt_ahcut == true then
+					gross = math.floor(gross * 0.95)
+				end
+				totalGross = totalGross + gross
+			else
+				grossComplete = false
+			end
+		end
+	end
+
+	if matchedRecipes == 0 then return nil end
+	return {
+		totalCost = totalCost,
+		costComplete = costComplete,
+		totalGross = totalGross,
+		grossComplete = grossComplete,
+		netProfit = (costComplete and grossComplete) and (totalGross - totalCost) or nil,
+		ahCut = (atsw_qt_ahcut == true),
+		formatPrice = ATSWQT_FormatPrice,
+	}
 end
